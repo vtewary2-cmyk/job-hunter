@@ -334,7 +334,8 @@ def send_digest(html: str, settings) -> None:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"Job Hunter <{settings.digest_recipient}>"
-    msg["To"] = settings.digest_recipient
+    recipients = [settings.digest_recipient, *getattr(settings, "also_to", [])]
+    msg["To"] = ", ".join(recipients)
 
     msg.attach(MIMEText(html, "html", "utf-8"))
 
@@ -342,8 +343,4 @@ def send_digest(html: str, settings) -> None:
         server.ehlo()
         server.starttls()
         server.login(settings.digest_recipient, settings.gmail_app_password)
-        server.sendmail(
-            settings.digest_recipient,
-            settings.digest_recipient,
-            msg.as_string(),
-        )
+        server.sendmail(settings.digest_recipient, recipients, msg.as_string())

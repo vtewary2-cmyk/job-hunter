@@ -1,6 +1,6 @@
 """Per-agent heartbeat tracking and LLM spend accounting.
 
-State is persisted as JSON in ``src/data/run_state.json``.  All writes are
+State is persisted as JSON in ``$JOBHUNTER_HOME/data/run_state.json``.  All writes are
 atomic (write to a ``.tmp`` file, then ``os.replace()``).
 
 Schema
@@ -39,8 +39,9 @@ from pathlib import Path
 from typing import Final
 from zoneinfo import ZoneInfo
 
-_SRC_DIR: Final[Path] = Path(__file__).parent.parent
-DATA_DIR: Final[Path] = _SRC_DIR / "data"
+from src.common import home
+
+DATA_DIR: Final[Path] = home.data_dir()
 STATE_PATH: Final[Path] = DATA_DIR / "run_state.json"
 
 IST: Final[ZoneInfo] = ZoneInfo("Asia/Kolkata")

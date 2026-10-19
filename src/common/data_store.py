@@ -4,9 +4,9 @@ All external code must go through these functions — never write to the CSV
 directly.  Every successful write recomputes the SHA-256 sidecar via
 :mod:`src.common.integrity`.
 
-CSV path  : src/data/job_applications.csv
-Sidecar   : src/data/job_applications.csv.sha256
-Lock file : src/data/job_applications.csv.lock
+CSV path  : $JOBHUNTER_HOME/data/job_applications.csv
+Sidecar   : $JOBHUNTER_HOME/data/job_applications.csv.sha256
+Lock file : $JOBHUNTER_HOME/data/job_applications.csv.lock
 """
 
 from __future__ import annotations
@@ -21,14 +21,14 @@ from zoneinfo import ZoneInfo
 
 import filelock
 
+from src.common import home
 from src.common.integrity import IntegrityError, baseline, verify  # noqa: F401 (re-exported)
 
 # ---------------------------------------------------------------------------
 # Paths & constants
 # ---------------------------------------------------------------------------
 
-_SRC_DIR: Final[Path] = Path(__file__).parent.parent
-DATA_DIR: Final[Path] = _SRC_DIR / "data"
+DATA_DIR: Final[Path] = home.data_dir()
 
 CSV_PATH: Final[Path] = DATA_DIR / "job_applications.csv"
 SIDECAR_PATH: Final[Path] = DATA_DIR / "job_applications.csv.sha256"
@@ -51,6 +51,12 @@ HEADERS: Final[list[str]] = [
     "interview_date",
     "next_steps",
     "last_activity",
+    # Which resume PDF was uploaded — a candidate with several variants needs
+    # to know which one a recruiter is holding before the call.
+    "resume",
+    # When the pipeline first saw the posting. last_activity moves on every
+    # update, so it cannot answer "when did this come in".
+    "found_at",
 ]
 
 VALID_STATUSES: Final[frozenset[str]] = frozenset(
@@ -102,9 +108,13 @@ def _read_raw() -> list[list[str]]:
         reader = csv.reader(fh)
         rows = list(reader)
     # Skip header row if present.
-    if rows and rows[0] == HEADERS:
+    # A header from before a column was appended is a prefix of HEADERS; it is
+    # still the header, not a data row.
+    if rows and rows[0] == HEADERS[: len(rows[0])]:
         rows = rows[1:]
-    return rows
+    # Rows written before a column was appended are short; pad so index-based
+    # updates do not raise.
+    return [row + [""] * (len(HEADERS) - len(row)) for row in rows]
 
 
 def _write_all_rows(rows: list[list[str]]) -> None:
@@ -185,6 +195,8 @@ def append_jobs(jobs: list[dict]) -> list[str]:
                 job.get("interview_date", ""),
                 job.get("next_steps", ""),
                 job.get("last_activity", now),
+                job.get("resume", ""),
+                job.get("found_at", now),
             ]
             new_rows.append(row)
 
@@ -252,12 +264,28 @@ def read_by_status(status: str) -> list[dict]:
     return _rows_to_dicts(filtered)
 
 
-def get_companies() -> set[str]:
-    """Return the set of normalised company names already in the CSV.
+def get_seen_urls() -> set[str]:
+    """Return every job URL already recorded, canonicalised for comparison.
 
-    Used by the dedup gate in the filter module — no integrity check needed
-    for a fast lookup (worst case: we skip a company we've actually not
-    applied to yet, which is safe).
+    This is the dedup key.  It replaced company-level dedup, which was wrong
+    twice over: overlapping poll windows re-surface the same posting each run
+    (so URL dedup is *required*), and excluding an entire company because one
+    of its roles was once scraped permanently hid every future role there.
+    """
+    rows = _read_raw()
+    url_idx = HEADERS.index("url")
+    return {
+        r[url_idx].split("?")[0].split("#")[0].rstrip("/").lower()
+        for r in rows
+        if len(r) > url_idx and r[url_idx]
+    }
+
+
+def get_companies() -> set[str]:
+    """Normalised company names already in the CSV.
+
+    No longer used for dedup (see :func:`get_seen_urls`) — retained because the
+    digest reports per-company counts.
     """
     rows = _read_raw()
     company_idx = HEADERS.index("company")

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Job Hunter Setup</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1d2330; --muted: #5c6475; --line: #e3e6eb;
+    --accent: #0a66c2; --accent-text: #ffffff; --ok: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161a; --card: #1d2026; --text: #e8eaee; --muted: #9aa3b2; --line: #2c313a;
+            --accent: #4f9bf0; --accent-text: #0b1220; --ok: #4ac26b; --warn: #d4a72c; --bad: #ff6b6b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 18px 20px; margin-bottom: 14px; }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .num { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+         background: var(--line); font-weight: 600; font-size: 14px; flex: none; }
+  .done .num { background: var(--ok); color: #fff; }
+  h2 { font-size: 17px; margin: 0; flex: 1; }
+  .status { font-size: 14px; color: var(--muted); }
+  .done .status { color: var(--ok); }
+  p.help { color: var(--muted); font-size: 14px; margin: 10px 0 12px 38px; }
+  .body { margin-left: 38px; }
+  label { display: block; font-size: 14px; margin: 8px 0 4px; }
+  input { width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+          background: var(--bg); color: var(--text); font-size: 15px; }
+  button { margin-top: 12px; padding: 9px 16px; border: 0; border-radius: 8px; cursor: pointer;
+           background: var(--accent); color: var(--accent-text); font-size: 15px; font-weight: 600; }
+  button[disabled] { opacity: .5; cursor: default; }
+  a { color: var(--accent); }
+  .err { color: var(--bad); font-size: 14px; margin-top: 8px; }
+  .note { color: var(--warn); font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Job Hunter</h1>
+  <p class="sub" id="who">Four steps, once. After that it applies every morning at 9:00 by itself.</p>
+
+  <section class="card" id="c1">
+    <div class="head"><span class="num">1</span><h2>Email and phone alerts</h2><span class="status" id="s1"></span></div>
+    <p class="help">The daily summary and the 8:55 reminder are sent from your Gmail. Create an App Password at
+      <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>
+      and paste it here. For phone alerts, install the free <b>ntfy</b> app and subscribe to the topic shown after saving.</p>
+    <div class="body">
+      <label for="pw">Gmail App Password (16 letters)</label>
+      <input id="pw" type="password" autocomplete="off" placeholder="xxxx xxxx xxxx xxxx">
+      <button id="b1">Save</button>
+      <div class="note" id="topic"></div>
+    </div>
+  </section>
+
+  <section class="card" id="c2">
+    <div class="head"><span class="num">2</span><h2>Sign in to LinkedIn with Google</h2><span class="status" id="s2"></span></div>
+    <p class="help">Opens a separate Chrome window just for Job Hunter. On LinkedIn's sign-in page click
+      <b>Continue with Google</b> and pick your Google account — no LinkedIn password needed. Then
+      <b>leave that window open</b> — the 9:00 run uses it.</p>
+    <div class="body"><button id="b2">Open LinkedIn Google sign-in</button></div>
+  </section>
+
+  <section class="card" id="c3">
+    <div class="head"><span class="num">3</span><h2>Connect Google Sheets</h2><span class="status" id="s3"></span></div>
+    <p class="help">Creates a sheet in your own Google Drive listing every job: applied ones ticked, the rest to apply
+      on the company site. Questions the forms ask that need your answer appear in its Questions tab.</p>
+    <div class="body"><button id="b3">Connect Google</button><div id="sheet"></div><div class="err" id="e3"></div></div>
+  </section>
+
+  <section class="card" id="c4">
+    <div class="head"><span class="num">4</span><h2>Start the daily 9:00 AM run</h2><span class="status" id="s4"></span></div>
+    <p class="help">Your Mac will ask for your password once, so it can wake itself at 8:53. Keep the lid open and the
+      charger in overnight.</p>
+    <div class="body"><button id="b4">Start daily runs</button><div class="err" id="e4"></div></div>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const post = (path, body) => fetch(path, {method: "POST", headers: {"Content-Type": "application/json"},
+                                            body: JSON.stringify(body || {})}).then(r => r.json());
+  function mark(n, done, text) { $("c" + n).classList.toggle("done", done); $("s" + n).textContent = text; }
+
+  async function refresh() {
+    let s;
+    try { s = await (await fetch("/state")).json(); } catch { return; }
+    if (s.name) $("who").textContent = `Set up for ${s.name}. Four steps, once — then it applies every morning at 9:00.`;
+    mark(1, s.gmail_set, s.gmail_set ? "✅ saved" : "");
+    $("topic").textContent = s.ntfy_topic ? `ntfy topic: ${s.ntfy_topic}` : "";
+    mark(2, s.linkedin, s.linkedin ? "✅ signed in" : (s.chrome_open ? "waiting for sign-in…" : ""));
+    $("b2").disabled = s.linkedin;
+    mark(3, s.google, s.google ? "✅ connected" : "");
+    $("b3").disabled = !s.google_available || s.google;
+    $("sheet").innerHTML = s.sheet_url ? `<a href="${s.sheet_url}" target="_blank" rel="noopener">Open your Job Hunter sheet</a>` : "";
+    $("e3").textContent = s.google_error || (s.google_available ? "" : "Google is not set up in this copy — the sheet is skipped.");
+    const jobsOk = Object.values(s.schedule.jobs).every(Boolean);
+    mark(4, jobsOk && s.schedule.wake, jobsOk ? (s.schedule.wake ? "✅ daily at 9:00" : "runs at 9:00 · wake not set") : "");
+  }
+  $("b1").onclick = async () => { await post("/profile", {gmail_app_password: $("pw").value}); $("pw").value = ""; refresh(); };
+  $("b2").onclick = () => post("/login").then(refresh);
+  $("b3").onclick = () => post("/google").then(refresh);
+  $("b4").onclick = async () => {
+    $("b4").disabled = true; $("e4").textContent = "";
+    const r = await post("/schedule");
+    if (!r.ok) $("e4").textContent = r.error;
+    $("b4").disabled = false; refresh();
+  };
+  refresh(); setInterval(refresh, 3000);
+</script>
+</body>
+</html>

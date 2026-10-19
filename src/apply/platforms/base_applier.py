@@ -11,8 +11,10 @@ from typing import ClassVar, Literal
 
 logger = logging.getLogger(__name__)
 
+from src.common import home
+
 # Path to the shared form profile used by all appliers
-_FORM_PROFILE_PATH = Path(__file__).parent.parent / "form_profile.json"
+_FORM_PROFILE_PATH = home.form_profile_path()
 
 # Known ATS URL patterns that always trigger manual_review
 _KNOWN_ATS_PATTERNS: list[str] = [
@@ -109,17 +111,17 @@ class BaseApplier(ABC):
         """Inner apply logic; exceptions propagate up to ``apply()``."""
         from playwright.sync_api import sync_playwright  # type: ignore[import]
 
+        from src.common.browser import CDP_PORT
+
         url: str = job["url"]
-        chrome_profile: str = settings.chrome_profiles.get(self.platform, "")
-        headless: bool = settings.headless
 
         with sync_playwright() as pw:
-            browser = pw.chromium.launch_persistent_context(
-                user_data_dir=chrome_profile or "",
-                headless=headless,
-                viewport={"width": 1280, "height": 800},
-            )
-            page = browser.new_page() if hasattr(browser, "new_page") else browser.pages[0]
+            # Attach to the same long-lived Chrome the scraper uses. Launching a
+            # second browser would not carry the LinkedIn session, and Chrome
+            # >= 136 refuses remote debugging on the default profile anyway.
+            browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{CDP_PORT}")
+            context = browser.contexts[0]
+            page = context.new_page()
 
             try:
                 page.goto(url, timeout=30_000, wait_until="domcontentloaded")
@@ -132,7 +134,9 @@ class BaseApplier(ABC):
                 result = self._run_apply_flow(page, job, profile, settings, live)
                 return result
             finally:
-                browser.close()
+                # Close the page, never the context: the browser is shared and
+                # long-lived, and closing it would kill the logged-in session.
+                page.close()
 
     # ------------------------------------------------------------------
     # Abstract hooks — each platform implements these
